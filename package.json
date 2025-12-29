@@ -1,0 +1,20 @@
+{
+  "name": "prueba-tecnica-cypress",
+  "version": "1.0.0",
+  "description": "Proyecto de pruebas automatizadas con Cypress",
+  "main": "index.js",
+  "scripts": {
+    "start": "node app/server.js",
+    "cy:open": "cypress open",
+    "cy:run": "cypress run",
+    "test:e2e": "cypress run --spec \"cypress/e2e/ui-smoke.cy.js\"",
+    "e2e:ci": "start-server-and-test start http://localhost:3000 test:e2e"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "cypress": "^15.8.1",
+    "start-server-and-test": "^2.0.0"
+  }
+}
