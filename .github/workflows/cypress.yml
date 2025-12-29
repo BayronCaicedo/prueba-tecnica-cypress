@@ -11,23 +11,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: "npm"
+          node-version: 18
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
-      - name: Start app
+      - name: Start application
         run: npm start &
       
-      - name: Wait for app to be ready
+      - name: Wait for server
         run: npx wait-on http://localhost:3000
 
-      - name: Run Cypress (E2E)
+      - name: Run Cypress tests
         run: npm run test:e2e
