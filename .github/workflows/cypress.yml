@@ -20,7 +20,7 @@ jobs:
           node-version: 18
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Start server
         run: |
@@ -28,4 +28,13 @@ jobs:
           sleep 5
 
       - name: Run Cypress tests
-        run: npx cypress run
+        run: npx cypress run --config video=true
+
+      - name: Upload Cypress artifacts (videos/screenshots)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-artifacts
+          path: |
+            cypress/videos
+            cypress/screenshots
