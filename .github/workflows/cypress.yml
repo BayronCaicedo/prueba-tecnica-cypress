@@ -1,4 +1,4 @@
-name: Cypress E2E
+name: Cypress Tests
 
 on:
   push:
@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Node
@@ -22,11 +22,10 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Start application
-        run: npm start &
-      
-      - name: Wait for server
-        run: npx wait-on http://localhost:3000
+      - name: Start server
+        run: |
+          npm start &
+          sleep 5
 
       - name: Run Cypress tests
-        run: npm run test:e2e
+        run: npx cypress run
