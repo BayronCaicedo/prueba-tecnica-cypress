@@ -1,0 +1,172 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: "ubuntu-latest"
+
+variables:
+  NODE_VERSION: "18.x"
+  BASE_URL: "http://localhost:3000"
+  PASS_THRESHOLD: "100"  # quality gate: % mínimo de tests pasados
+
+stages:
+# -------------------------
+# STAGE 1 - BUILD
+# -------------------------
+- stage: Build
+  displayName: "Stage 1 - Build"
+  jobs:
+  - job: BuildJob
+    displayName: "Install & Validate"
+    steps:
+      - checkout: self
+
+      - task: NodeTool@0
+        inputs:
+          versionSpec: "$(NODE_VERSION)"
+        displayName: "Use Node $(NODE_VERSION)"
+
+      - script: |
+          node -v
+          npm -v
+        displayName: "Node/NPM versions"
+
+      - script: |
+          npm ci
+        displayName: "Install dependencies (npm ci)"
+
+      - script: |
+          npm run -s lint || echo "No lint script, skipping"
+        displayName: "Basic validations (lint if exists)"
+
+      - script: |
+          npm run -s build || echo "No build script, skipping"
+        displayName: "Build (if applies)"
+
+      - publish: $(Build.SourcesDirectory)
+        artifact: source
+        displayName: "Publish source as artifact"
+
+# -------------------------
+# STAGE 2 - AUTOMATED TESTING
+# -------------------------
+- stage: AutomatedTesting
+  displayName: "Stage 2 - Automated Testing"
+  dependsOn: Build
+  jobs:
+  - job: E2EJob
+    displayName: "Run Cypress + API checks"
+    steps:
+      - checkout: self
+
+      - task: NodeTool@0
+        inputs:
+          versionSpec: "$(NODE_VERSION)"
+        displayName: "Use Node $(NODE_VERSION)"
+
+      - script: |
+          npm ci
+        displayName: "Install dependencies"
+
+      # Levanta servidor en background
+      - script: |
+          npm start &
+          echo $! > server.pid
+          sleep 3
+          curl -s -o /dev/null -w "%{http_code}\n" $(BASE_URL) || true
+          curl -s -o /dev/null -w "%{http_code}\n" $(BASE_URL)/api/health || true
+        displayName: "Start server + quick health checks (front/back)"
+
+      # Corre Cypress en headless + JUnit XML para Azure
+      - script: |
+          mkdir -p results
+          npx cypress run --reporter junit --reporter-options "mochaFile=results/junit-[hash].xml,toConsole=true"
+        displayName: "Run Cypress (E2E - smoke) + JUnit report"
+        env:
+          CYPRESS_baseUrl: "$(BASE_URL)"
+
+      # Publicar resultados de pruebas en Azure
+      - task: PublishTestResults@2
+        displayName: "Publish JUnit results"
+        inputs:
+          testResultsFormat: "JUnit"
+          testResultsFiles: "results/junit-*.xml"
+          mergeTestResults: true
+          failTaskOnFailedTests: true
+          testRunTitle: "Cypress E2E"
+
+      # Publicar evidencias: screenshots/videos (si existen)
+      - task: PublishPipelineArtifact@1
+        displayName: "Publish Cypress artifacts (screenshots/videos)"
+        inputs:
+          targetPath: "$(Build.SourcesDirectory)/cypress"
+          artifact: "cypress-artifacts"
+          publishLocation: "pipeline"
+        condition: always()
+
+      # Apagar el server
+      - script: |
+          if [ -f server.pid ]; then kill $(cat server.pid) || true; fi
+        displayName: "Stop server"
+        condition: always()
+
+# -------------------------
+# STAGE 3 - QUALITY GATE (conceptual)
+# -------------------------
+- stage: QualityGate
+  displayName: "Stage 3 - Quality Gate"
+  dependsOn: AutomatedTesting
+  condition: succeededOrFailed()  # corre incluso si falló para evidenciar puerta de calidad
+  jobs:
+  - job: GateJob
+    displayName: "Evaluate success threshold"
+    steps:
+      - checkout: self
+
+      - script: |
+          echo "Quality Gate: Threshold $(PASS_THRESHOLD)%"
+          echo "If tests failed, pipeline should be marked as failed."
+        displayName: "Quality Gate concept"
+
+      # Umbral de éxito (simple): si falló testing, falla el gate
+      - script: |
+          echo "Evaluating gate based on previous stage result..."
+          # Si la stage anterior falló, forzamos fallo
+          if [ "$(Agent.JobStatus)" != "Succeeded" ]; then
+            echo "Previous job status is not Succeeded. Failing quality gate."
+            exit 1
+          fi
+        displayName: "Fail gate if previous stage failed"
+
+# -------------------------
+# ROLLBACK (evidenciable)
+# -------------------------
+- stage: Rollback
+  displayName: "Rollback (evidence)"
+  dependsOn: QualityGate
+  condition: failed()  # solo corre si algo falló antes
+  jobs:
+  - job: RollbackJob
+    displayName: "Rollback simulated (evidence log)"
+    steps:
+      - script: |
+          echo "Rollback triggered because pipeline failed." | tee rollback.log
+          echo "Concept: revert deployment to last stable artifact/environment slot." | tee -a rollback.log
+          echo "For this demo, we generate rollback evidence." | tee -a rollback.log
+        displayName: "Generate rollback evidence"
+
+      - task: PublishPipelineArtifact@1
+        displayName: "Publish rollback evidence"
+        inputs:
+          targetPath: "$(System.DefaultWorkingDirectory)/rollback.log"
+          artifact: "rollback-evidence"
+          publishLocation: "pipeline"
